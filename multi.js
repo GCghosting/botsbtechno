@@ -4,7 +4,7 @@ const path = require('path');
 const axios = require('axios');
 const moment = require('moment');
 
-const TOKEN = '6767335174:AAEd1y9_xcY2iAFahZ9T3QBMb4bYVwbPlq0'; // <-- GANTI DENGAN TOKEN ANDA
+const TOKEN = '7089049407:AAETfrMd1aGVy8xD2lNoS60tHHFlcZUquuk'; // <-- GANTI DENGAN TOKEN ANDA
 const OWNER_ID = 'error109';
 const ADMIN_IDS = '2129865779'; // Gantikan dengan User ID anda
 const SERVER_IMAGE = 'https://images.unsplash.com/photo-1553481187-be93c21490a9?auto=format&fit=crop&w=1400&q=80';
