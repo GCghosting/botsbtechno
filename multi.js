@@ -4,7 +4,7 @@ const path = require('path');
 const axios = require('axios');
 const moment = require('moment');
 
-const TOKEN = '8318661912:AAEwngG_5tl-khdleQP9GGtA_D2Del-nGVc'; // <-- GANTI DENGAN TOKEN ANDA
+const TOKEN = '8256123040:AAEIyWGF5rx4iGXPQiXKlXIwbnQMKrDUYD8'; // <-- GANTI DENGAN TOKEN ANDA
 const OWNER_ID = 'error109';
 const ADMIN_IDS = '2129865779'; // Gantikan dengan User ID anda
 const SERVER_IMAGE = 'https://images.unsplash.com/photo-1553481187-be93c21490a9?auto=format&fit=crop&w=1400&q=80';
@@ -1478,21 +1478,20 @@ function mainMenu(chatId, userId, firstName) {
         `<b>━━━━━━━━━━━━━━━━━━━</b>\n` +
         `<b>[CELCOM DIGI (NGA)]</b>\n` +
         ` •  Untuk nombor Celcom & Digi (melalui *sistem baharu*).\n` +
-        ` •  Boleh langgan pakej *Auto-Renew*.\n\n` +
+        ` •  Bot akan AutoUpdate Notification 2jam sebelum langganan tamat.\n\n` +
         `<b>[TELCO LAMA]</b>\n` +
         ` •  <b>DIG1 (Digi Sahaja):</b> Check *Hidden Data* & maklumat kredit.\n` +
         ` •  <b>CELC0M (Celcom Sahaja):</b> Langgan *Panggilan/Data Freebies* & *Extend Validity*.\n` +
         ` •  <b>MAX1S (Maxis Sahaja):</b> Langgan *Data Freebies*, *Extend Validity* & *Redeem Giveaway*.\n` +
         `<b>━━━━━━━━━━━━━━━━━━━</b>\n\n` +
         
-        `<ins>⚠️ NOTA PENTING:</ins> Mohon jangan log masuk *Aplikasi CelcomDigi* selepas langganan auto-renew berjaya.\n` +
-        `Bot dalam fasa *pengujian*. Sila laporkan isu kepada Admin.\n` +
+        `<ins>Bot masih dalam fasa *pengujian*. Sila laporkan isu kepada Admin @bossgass:</ins>\n` +
         `<b>Status Bot:</b> ${MAINTENANCE_MODE ? '❌ MAINTENANCE MODE' : '✅ ONLINE'}`;
 
     // Gabungan Butang Menu
     let buttons = [
         // Baris 1: CELCOM Digi (NGA)
-        [{ text: 'CELCOM Digi (OTP)', callback_data: 'menu_telco' }], 
+        [{ text: 'CELCOM Digi (Baru)', callback_data: 'menu_telco' }], 
         
         // Baris 2: Telco Lama - DIGI & MAXIS
         [{ text: 'TELCO DIG1 (Digi Sahaja)', callback_data: 'check_digi' }, { text: 'TELCO MAX1S (Maxis Sahaja)', callback_data: 'check_maxis' }], 
@@ -2124,10 +2123,12 @@ bot.on('callback_query', async (query) => {
         bot.sendMessage(chatId, 'Memproses Extend Validity 1 Hari...');
         try {
             const response = await extendValidityMaxis1(s.maxis.msisdn, s.maxis.token);
-            if (response.success) {
-                bot.sendMessage(chatId, `✅ Berjaya extend validity:\n${response.message}`);
+            if (response && response.status === "success") {
+                bot.sendMessage(chatId, `✅ Berjaya extend validity:
+    ${response.message || 'Validity dilanjutkan 1 hari.'}`);
             } else {
-                bot.sendMessage(chatId, `❌ Gagal extend validity.\n${response.message || "Sila cuba lagi."}`);
+                bot.sendMessage(chatId, `❌ Gagal extend validity. SIM masih aktif.
+    ${JSON.stringify(response) || "Sila cuba lagi."}`);
             }
         } catch (e) {
             bot.sendMessage(chatId, `❌ Ralat Extend Validity: ${e.message}`);
@@ -2492,14 +2493,16 @@ bot.on('callback_query', async (query) => {
     }
     
     // Logik: SETUP RENEW & SPAM (CelcomDigi)
+// Logik: SETUP RENEW & SPAM (CelcomDigi)
     else if (data === 'setup_renew_spam') {
         const msisdn = userState[chatId]?.msisdn;
         const targetUserId = userState[chatId]?.userId || userId;
         
+        // 1. Validasi Login
         if (!msisdn) return bot.sendMessage(chatId, 'Sila login dahulu sebelum check addons.', {
             reply_markup: { inline_keyboard: [[{ text: '🔙 Kembali ke Menu Utama', callback_data: 'back_menu' }]] }
         });
-
+    
         const cookie = getCookie(targetUserId, msisdn);
         if (!cookie) {
             bot.sendMessage(chatId, 'Cookie tamat tempoh. Sila login semula.', {
@@ -2508,9 +2511,9 @@ bot.on('callback_query', async (query) => {
             deleteUserData(targetUserId, msisdn);
             return;
         }
-
-        bot.sendMessage(chatId, 'Memuatkan addons untuk Langganan Sekali/Spam...'); 
-
+    
+        bot.sendMessage(chatId, 'Memuatkan addons untuk Langganan Sekali...');
+        
         const addonHeaders = { ...deviceHeadersForAddons, 'cookie': cookie };
         const endpoint = 'https://nga.celcomdigi.com/offering/v1/addons?category=internet';
         
@@ -2518,108 +2521,137 @@ bot.on('callback_query', async (query) => {
             const response = await axios.get(endpoint, { headers: addonHeaders });
             const resData = response.data.data;
             
-            // Logik CMP Offer dan MobileShield dari Skrip 1
-            const cmpOffers = await getCmpOffer(cookie);
-            const rm1DailyOffer = cmpOffers.find(o => o.name === 'RM1 Daily MI UL (1 Day)' && o.price === 1);
+            // Dapatkan SEMUA CMP Offers
+            const cmpOffers = await getCmpOffer(cookie); 
             
             const allProducts = {}; 
-            let message = '📦 *Langganan Sekali & Spam Addons*\n\n'; 
+            let message = '📦 *Langganan Sekali Addons*\n\n'; 
             const buttons = [];
             const filteredProducts = [];
+            const CMP_PRODUCT_IDS = [];
             
             // 1.1 LOGIK MOBILESHIELD
             if (isMobileShieldUser(Number(targetUserId))) {
                 const mshieldData = MOBILESHIELD_PRODUCT_DATA;
+                const productId = mshieldData.id;
+    
                 message += 
                     `• *${mshieldData.preferred_name}*\n` +
                     `  Price: RM 0.00\n` +
                     `  Quota: ${mshieldData.internet_quota}\n` +
                     `  Expiry: ${mshieldData.validity}\n\n`;
                     
+                // MobileShield: Kekal dengan opsi Langgan Sekali & SPAM, guna subscribe_addon_
                 buttons.push([
-                    { text: `➕ Langgan Sekali (${mshieldData.preferred_name})`, callback_data: `subscribe_addon_${mshieldData.id}` },
-                    { text: `🚀 Langgan SPAM (${mshieldData.preferred_name})`, callback_data: `spam_addon_start_${mshieldData.id}` }
+                    { text: `➕ Langgan Sekali (${mshieldData.preferred_name})`, callback_data: `subscribe_addon_${productId}` },
+                    { text: `🚀 Langgan SPAM (${mshieldData.preferred_name})`, callback_data: `spam_addon_start_${productId}` }
                 ]);
-                allProducts[mshieldData.id] = mshieldData;
+                allProducts[productId] = mshieldData;
             }
             
-            // 2. Tambah CMP Offer
-            if (rm1DailyOffer) {
-                const productData = {
-                    id: CMP_RM1_DAILY_ID,
-                    product_id: CMP_RM1_DAILY_ID,
-                    preferred_name: rm1DailyOffer.name,
-                    name: rm1DailyOffer.name,
-                    price: rm1DailyOffer.price,
-                    price_cent: rm1DailyOffer.price * 100,
-                    validity: '1 Day',
-                    internet_quota: 'Unlimited',
-                    isCmpOffer: true,
-                    campaignId: rm1DailyOffer.campaignId,
-                    keyword: rm1DailyOffer.keyword,
-                    poId: rm1DailyOffer.poId,
-                };
-                filteredProducts.push(productData);
-                allProducts[CMP_RM1_DAILY_ID] = productData;
-            }
-
-            // 3. Logik filter produk Addons biasa
+            // 2. Tambah SEMUA CMP Offer yang relevan
+            cmpOffers.forEach(offer => {
+                // Saring: ambil tawaran yang dianggap Internet/MI UL atau tawaran RM1
+                if (offer.name?.toLowerCase().includes('mi ul') || offer.price > 0 && offer.validity?.includes('Day') || offer.price === 1) {
+                    const productId = offer.poId || `${offer.campaignId}_${offer.price}`; 
+                    
+                    // Pastikan tiada duplikasi ID yang sama dengan MobileShield (walaupun jarang berlaku)
+                    if (productId !== MOBILESHIELD_PRODUCT_DATA.id) { 
+                        const productData = {
+                            id: productId,
+                            product_id: productId, 
+                            preferred_name: offer.name || `CMP Offer RM${(offer.price || 0).toFixed(2)}`,
+                            name: offer.name || `CMP Offer RM${(offer.price || 0).toFixed(2)}`,
+                            price: offer.price,
+                            price_cent: offer.price * 100,
+                            validity: offer.validity || 'N/A',
+                            internet_quota: offer.quota_label || 'Unlimited',
+                            isCmpOffer: true, 
+                            campaignId: offer.campaignId,
+                            keyword: offer.keyword,
+                            poId: offer.poId,
+                        };
+                        
+                        filteredProducts.push(productData);
+                        allProducts[productId] = productData;
+                        CMP_PRODUCT_IDS.push(productId);
+                    }
+                }
+            });
+    
+    
+            // 3. Logik Addons biasa: DETECT SEMUA
             for (const catKey in resData) {
                 const category = resData[catKey];
                 if (typeof category === 'object' && category !== null && category.products) {
                     category.products.forEach(prod => {
-                        const priceCent = prod.price_cent || (prod.price * 100); 
-                        const quotaDisplay = prod.internet_quota || 'N/A';
+                        const productId = prod.product_id;
                         
-                        const isRM12_30D = priceCent === 1200 && quotaDisplay.includes('100GB') && prod.validity?.includes('30');
-                        const isRM1_24H = priceCent === 100 && quotaDisplay.includes('100GB') && prod.validity?.includes('24');
-                        const isFreebie = priceCent === 0 && (quotaDisplay.includes('2GB') || quotaDisplay.includes('1GB') || quotaDisplay.includes('3GB'));
-
-                        if (isRM12_30D || isRM1_24H || isFreebie) {
+                        // Pastikan bukan MobileShield, dan bukan CMP Offer
+                        if (productId !== MOBILESHIELD_PRODUCT_DATA.id && !CMP_PRODUCT_IDS.includes(productId)) {
+                            // **Mesti ada price_cent untuk mengelakkan ralat, jika price_cent tiada, guna prod.price**
+                            if (prod.price_cent === undefined && prod.price !== undefined) {
+                                prod.price_cent = prod.price * 100;
+                            }
+    
                             filteredProducts.push(prod);
-                            allProducts[prod.product_id] = prod; 
+                            allProducts[productId] = prod; 
                         }
                     });
                 }
             }
-
-            // ... Logik paparan butang (sama seperti Skrip 1) ...
-            let addonCount = 0;
-
-            if (filteredProducts.length === 0) {
+    
+            // 4. Logik paparan butang: Susun dan Papar
+            const productIdsSeen = new Set();
+            
+            if (isMobileShieldUser(Number(targetUserId))) {
+                 productIdsSeen.add(MOBILESHIELD_PRODUCT_DATA.id); 
+            }
+            
+            // Susun: CMP Offers di atas, diikuti Addons Biasa
+            const cmpOffersToDisplay = filteredProducts.filter(p => p.isCmpOffer && !productIdsSeen.has(p.product_id));
+            const regularAddonsToDisplay = filteredProducts.filter(p => !p.isCmpOffer && !productIdsSeen.has(p.product_id));
+    
+            const allDisplayProducts = [...cmpOffersToDisplay, ...regularAddonsToDisplay].filter((prod, index, self) => 
+                index === self.findIndex((t) => (
+                    t.product_id === prod.product_id
+                ))
+            );
+    
+            if (allDisplayProducts.length === 0) {
                 if (!isMobileShieldUser(Number(targetUserId))) {
-                    message += '😔 Tiada Addons yang sepadan untuk Langganan Sekali/Spam ditemui buat masa ini.';
+                    message += '😔 Tiada Addons untuk Langganan Sekali ditemui buat masa ini.';
                 }
             } else {
-                filteredProducts.forEach(prod => {
-                    addonCount++;
+                // Sort by price (asc) within each category (optional, for better view)
+                allDisplayProducts.sort((a, b) => (a.price_cent || 0) - (b.price_cent || 0));
+    
+                allDisplayProducts.forEach(prod => {
                     const priceCent = prod.price_cent || (prod.price * 100); 
                     const priceFormatted = formatRMFromCent(priceCent); 
                     const quotaDisplay = prod.internet_quota || 'N/A';
-                    const nameDisplay = prod.preferred_name || prod.name || prod.name;
-                    const productId = prod.product_id || CMP_RM1_DAILY_ID;
-
+                    const nameDisplay = prod.preferred_name || prod.name;
+                    const productId = prod.product_id || prod.id;
+                    const isCmpOffer = prod.isCmpOffer; 
+    
                     message += 
-                        `• *${nameDisplay}*\n` +
+                        `• *${nameDisplay}${isCmpOffer ? ' (CMP)' : ''}*\n` +
                         `  Price: RM${priceFormatted}\n` +
                         `  Quota: ${quotaDisplay}\n` +
                         `  Expiry: ${prod.validity || 'N/A'}\n\n`;
-
-                    const isCMP_RM1 = productId === CMP_RM1_DAILY_ID;
-                    const isRM1_24H = priceCent === 100 && !isCMP_RM1;
-                    const isFreebie = priceCent === 0 && !isCMP_RM1;
+    
                     
-                    if (isCMP_RM1) {
-                        buttons.push([{ text: `➕ Langgan Sekali (RM1 UL)`, callback_data: `subscribe_addon_${productId}` }]);
-                    } else if (isRM1_24H) {
-                        buttons.push([{ text: `➕ Langgan Sekali (RM1 100GB)`, callback_data: `subscribe_addon_${productId}` }]);
-                    } else if (isFreebie) {
-                        buttons.push([{ text: `✨ Langgan Sekali (${quotaDisplay})`, callback_data: `subscribe_addon_${productId}` }]);
-                        buttons.push([{ text: `🚀 Langgan SPAM (${quotaDisplay})`, callback_data: `spam_addon_start_${productId}` }]);
+                    if (isCmpOffer) {
+                        // Semua CMP Offer guna subscribe_cmp_
+                        buttons.push([{ 
+                            text: `➕ Langgan CMP (${nameDisplay})`, 
+                            callback_data: `subscribe_cmp_${productId}` 
+                        }]); 
                     } else {
+                        // Semua Addon Biasa guna subscribe_addon_ (Hanya Langgan Sekali)
                         buttons.push([{
-                            text: `➕ Langgan ${nameDisplay} (RM${priceFormatted})`, 
-                            callback_data: `subscribe_addon_${productId}`
+                            text: `➕ Langgan Sekali ${nameDisplay} (RM${priceFormatted})`, 
+                            callback_data: `subscribe_addon_${productId}` 
                         }]);
                     }
                 });
@@ -2643,6 +2675,7 @@ bot.on('callback_query', async (query) => {
             });
         }
     }
+
     
     // Logik: CHECK ALL ADDONS CELCOMDIGI
     else if (data === 'check_all_addons') {
@@ -3654,7 +3687,7 @@ bot.on('message', async (msg) => {
             const path = require('path');
             const file = path.join(dataDir, `${phone}.digi.txt`);
             if (!fs.existsSync(file)) {
-                bot.sendMessage(chatId, 'Nombor anda tiada dalam sistem Digi.');
+                bot.sendMessage(chatId, 'Nombor anda tiada dalam sistem Kami, Sila login number terlebih dahulu.');
                 userSession[chatId] = null;
             } else {
                 // ... (Logik Digi Login Existing) ...
@@ -3845,7 +3878,7 @@ bot.on('message', async (msg) => {
             const url = `https://api-digital.maxis.com.my/prod/api/v1.0/rewards/giveaway/event?languageId=1&msisdn=${s.maxis.msisdn}`;
           
             let results = [];
-          
+            
             async function redeemCodes() {
               for (const code of codes) {
                 const payload = {
@@ -3856,10 +3889,10 @@ bot.on('message', async (msg) => {
                     }
                   ]
                 };
-          
+            
                 try {
                   const resp = await axios.post(url, payload, { headers });
-                  if (resp.data && resp.data.statusCode === 0) {
+                  if (resp.data && resp.data.status === "success") {
                     results.push(`✅ ${code}: Berjaya redeem!`);
                   } else {
                     results.push(`❌ ${code}: Gagal - ${JSON.stringify(resp.data)}`);
@@ -3867,14 +3900,17 @@ bot.on('message', async (msg) => {
                 } catch (err) {
                   results.push(`❌ ${code}: Error - ${err.message}`);
                 }
-          
+            
                 await new Promise(resolve => setTimeout(resolve, 2000));
               }
             }
-          
+            
             redeemCodes()
               .then(() => {
-                let replyText = results.join('\n') + "\n\nSila pilih tindakan seterusnya:";
+                let replyText = results.join(
+            ) + 
+            
+            'Sila pilih tindakan seterusnya:';
                 let replyMarkup = {
                   inline_keyboard: [
                     [
@@ -3883,12 +3919,13 @@ bot.on('message', async (msg) => {
                     ]
                   ]
                 };
-          
+            
                 bot.sendMessage(chatId, replyText, { reply_markup: replyMarkup });
                 userSession[chatId].state = null;
               });
-          
+            
             return;
+            
         }
         else if (session.state === 'await_owner') {
             const fs = require('fs');
