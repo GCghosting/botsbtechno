@@ -6,7 +6,7 @@ const moment = require('moment');
 
 const TOKEN = '8256123040:AAEIyWGF5rx4iGXPQiXKlXIwbnQMKrDUYD8'; // <-- GANTI DENGAN TOKEN ANDA
 const OWNER_ID = 'error109';
-const ADMIN_IDS = '2129865779'; // Gantikan dengan User ID anda
+const ADMIN_IDS = '7001582342'; // Gantikan dengan User ID anda
 const SERVER_IMAGE = 'https://images.unsplash.com/photo-1553481187-be93c21490a9?auto=format&fit=crop&w=1400&q=80';
 const dataDir = path.join(__dirname, 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir);
